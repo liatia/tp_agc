@@ -21,6 +21,7 @@ import statistics
 from collections import Counter
 # https://github.com/briney/nwalign3
 # ftp://ftp.ncbi.nih.gov/blast/matrices/
+import statistics
 import nwalign3 as nw
 
 __author__ = "Lara Herrmann"
@@ -117,13 +118,11 @@ def dereplication_fulllength(amplicon_file, minseqlen, mincount):
 
 
 def get_chunks(sequence, chunk_size):
-    print("nouvel appel")
     chunk_list = []
     start = 0
     end = chunk_size
     while end < len(sequence):
         chunk_list.append(sequence[start:end])
-        print(len(sequence[start:end]))
         start += chunk_size
         end += chunk_size
     if len(chunk_list) < 4 :
@@ -162,7 +161,32 @@ def get_identity(alignment_list):
 
 
 def detect_chimera(perc_identity_matrix):
-    pass
+    """
+    Si l’écart type moyen des pourcentages est supérieur à 5 et 
+    que 2 segments minimum de notre séquence montrent une similarité 
+    différente à un des deux parents, nous identifierons cette 
+    séquence comme chimérique.
+    """
+    std_list = []
+    flag_file = 0
+    flag_similarity = 0
+    for line in perc_identity_matrix:
+        std_list.append(statistics.stdev([line[0], line[1]]))
+        if flag_file == 0:
+            val0 = line[0]
+            val1 = line[0]
+            flag_file = 1
+        else:
+            if flag_similarity == 1:
+                continue
+            if val0 != line[0] and val1 != line[1]:
+                flag_similarity = 1
+            val0 = line[0]
+            val1 = line[0]
+    std_mean = statistics.mean(std_list)
+    if std_mean > 5 and flag_similarity == 1:
+        return True
+    return False
 
 
 def chimera_removal(amplicon_file, minseqlen, mincount, chunk_size, kmer_size):
@@ -188,4 +212,22 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    # main()
+    assert(not detect_chimera([[73.58, 73.79], [72.97, 77.06], [77.36, 80.58], [78.43, 78.43]]))
+    assert(not detect_chimera([[62.6, 94.17], [62.6, 94.17], [62.6, 94.17], [62.6, 94.17]]))
+    assert(detect_chimera([[98.0, 60.0], [100.0, 65.0], [100.0, 63.0], [64.0, 100.0]]))
+    S000387216 = "GGAGGCTCGTACCGCTGTCTTGTTAAGGACTGGTTTTTTACTGTCTATACAGACTCTTCATACTACTGGATATCCTGATATGCGTTCGGATCGATTGTTGCCGTACGCTGTGTCGATTAAAGGTAATCATAAGGGCTTTCGACTTACGACTC"
+    chimera_AJ007403 = "AAGACGCTTGGGTTTCACTCCTGCGCTTCGGCCGGGCCCGGCACTCGCCACAGTCTCGAGCGTCGTCTTGATGTTCACATTGCGTTCGGATCGATTGTTGCCGTACGCCTGTGTCATTAAAGGTAATCATAAGGGCTTTCGACTTACGACTC"
+    S000001688 = "AAGACGCTTGGGTTTCACTCCTGCGCTTCGGCCGGGCCCGGCACTCGCCACAGTCTCGAGCGTCGTCTTGATGTTCACATGTAACGATCGCTTCCAACCCATCCGGTGCTGTGTCGCCGGGCACGGCTTGGGAATTAACTATTCCCAAGTCT"
+    chunk_chim = get_chunks(chimera_AJ007403, 37)
+    chunk_seq_list = [get_chunks(S000387216, 37)]
+    chunk_seq_list += [get_chunks(S000001688, 37)]
+    perc_identity_matrix = [[] for c in range(len(chunk_chim))]
+    for i in range(len(chunk_seq_list)):
+        for l,chunk in enumerate(chunk_chim):
+            perc_identity_matrix[l].append(get_identity(
+                        nw.global_align(chunk, chunk_seq_list[i][l], 
+                            gap_open=-1, gap_extend=-1, matrix=os.path.abspath(os.path.join(os.path.dirname(__file__),
+                                                '../agc')) + "/MATCH")))
+    # [[48.89, 100.0], [51.16, 100.0], [84.62, 58.54], [94.74, 45.65]]
+    assert(detect_chimera(perc_identity_matrix))
